@@ -1,0 +1,14 @@
+[Unit]
+Description=Go CPP Grader Service
+After=network.target
+
+[Service]
+WorkingDirectory=/home/khajornritdacha/sandbox/goApi01
+ExecStart=/home/khajornritdacha/sandbox/goApi01/main
+Restart=on-failure
+User=khajornritdacha
+CPUQuota=50%
+Environment=GOPATH=/usr/local/go
+
+[Install]
+WantedBy=multi-user.target
