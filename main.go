@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"time"
 )
 
 type RequestBody struct {
@@ -19,10 +20,15 @@ type RequestBody struct {
 }
 
 type ResponseBody struct {
-	Results []string `json:"results"`
+	Results []TestResult `json:"results"`
 }
 
-var semaphore = make(chan struct{}, 3) // Limit to 3 concurrent requests
+type TestResult struct {
+	Result string `json:"result"`
+	Time   string `json:"time"`
+}
+
+var semaphore = make(chan struct{}, 100) // Limit to 3 concurrent requests
 
 var cpuQuota = -1
 var cpuPeriod = 100000
@@ -113,18 +119,28 @@ func handleMultipleCodes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var results []string
+	var results []TestResult
 	for _, testCase := range requestBody.TestCases {
-		result, err := runBinaryWithInput(binaryFileName, testCase)
+		result, err, duration := runBinaryWithInput(binaryFileName, testCase)
 
-		fmt.Println("Result: ", result)
+		// stringDuration := strconv.Itoa(int(duration.Milliseconds()))
+
+		fmt.Println(duration)
 
 		if err != nil {
-			results = append(results, "Runtime error: "+err.Error())
+			results = append(results, TestResult{
+				Result: "Runtime error: " + err.Error(),
+				Time:   "0",
+			})
 		} else {
-			results = append(results, result)
+			results = append(results, TestResult{
+				Result: result,
+				Time:   duration.String(),
+			})
 		}
 	}
+
+	fmt.Sprintln("Results: ", results)
 
 	w.Header().Set("Content-Type", "application/json")
 	resBody := ResponseBody{Results: results}
@@ -139,7 +155,7 @@ func addProcessToCgroup(cgroupPath string, pid int) error {
 	return res
 }
 
-func runBinaryWithInput(binaryFile, input string) (string, error) {
+func runBinaryWithInput(binaryFile, input string) (string, error, time.Duration) {
 	testCmd := exec.Command(binaryFile)
 
 	stdin, err := testCmd.StdinPipe()
@@ -156,14 +172,16 @@ func runBinaryWithInput(binaryFile, input string) (string, error) {
 		log.Fatal(err)
 	}
 
+	start := time.Now()
+
 	if err := testCmd.Start(); err != nil {
-		return "", fmt.Errorf("failed to start the binary: %w", err)
+		return "", fmt.Errorf("failed to start the binary: %w", err), 0
 	}
 	// testCmd.Stdin = strings.NewReader(input)
 	fmt.Printf("Pid: %d\n", testCmd.Process.Pid)
 	if err := addProcessToCgroup(cgroupPath, testCmd.Process.Pid); err != nil {
 		testCmd.Process.Kill()
-		return "", fmt.Errorf("failed to add process to cgroup: %w", err)
+		return "", fmt.Errorf("failed to add process to cgroup: %w", err), 0
 	}
 
 	// Read from stdout and parse the integer result
@@ -173,19 +191,19 @@ func runBinaryWithInput(binaryFile, input string) (string, error) {
 		// Parse the integer from the first line of output
 		result, err = strconv.Atoi(scanner.Text())
 		if err != nil {
-			return string(0), fmt.Errorf("failed to parse output as integer: %w", err)
+			return string(0), fmt.Errorf("failed to parse output as integer: %w", err), 0
 		}
 	}
 
 	if err := testCmd.Wait(); err != nil {
-		log.Fatal(err)
-	}
-	if err != nil {
-		return "", err
+		return "", fmt.Errorf("binary execution failed: %w", err), 0
 	}
 
+	duration := time.Since(start)
+
+	fmt.Println("Time take:", duration)
 	fmt.Println("return result: ", result)
 	resultStr := strconv.Itoa(result)
 
-	return resultStr, nil
+	return resultStr, nil, duration
 }
