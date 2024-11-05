@@ -11,8 +11,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
+
+	"example.com/proj/mem"
 )
 
 type RequestBody struct {
@@ -27,6 +28,7 @@ type ResponseBody struct {
 type TestResult struct {
 	Result string `json:"result"`
 	Time   string `json:"time"`
+	Memory string `json:"memory"`
 }
 
 var semaphore = make(chan struct{}, 10) // Limit to 3 concurrent requests
@@ -125,19 +127,39 @@ func handleMultipleCodes(w http.ResponseWriter, r *http.Request) {
 	for _, testCase := range requestBody.TestCases {
 		result, err, duration := runBinaryWithInput(binaryFileName, testCase)
 
-		fmt.Println(duration)
-
 		if err != nil {
 			results = append(results, TestResult{
 				Result: "Runtime error: " + err.Error(),
 				Time:   "0",
+				Memory: "0",
 			})
-		} else {
-			results = append(results, TestResult{
-				Result: result,
-				Time:   duration.String(),
-			})
+			continue
 		}
+
+		_, err2, duration2, memUsage := runBinaryForMemory(binaryFileName, testCase)
+
+		if err2 != nil {
+			results = append(results, TestResult{
+				Result: "Runtime error: " + err2.Error(),
+				Time:   "0",
+				Memory: "0",
+			})
+			continue
+		}
+
+		fmt.Println("Memory Usage: ", memUsage.MemHeapB)
+		fmt.Println("Memory Usage: ", memUsage.MemStacksB)
+		fmt.Println("Memory Usage: ", memUsage.MemHeapExtraB)
+		fmt.Println("Time used for memory checking: " + duration2.String())
+
+		totalMemory := memUsage.MemHeapB + memUsage.MemStacksB + memUsage.MemHeapExtraB
+		memoryString := fmt.Sprintf("%d bytes", totalMemory)
+		results = append(results, TestResult{
+			Result: result,
+			Time:   duration.String(),
+			Memory: memoryString,
+		})
+
 	}
 
 	fmt.Sprintln("Results: ", results)
@@ -153,6 +175,67 @@ func addProcessToCgroup(cgroupPath string, pid int) error {
 	data, _ := os.ReadFile(tasksPath)
 	fmt.Println("Tasks Path: ", string(data))
 	return res
+}
+
+func runBinaryForMemory(binaryFile, input string) (string, error, time.Duration, *mem.PeakMemoryUsage) {
+	// Prepare the valgrind command with massif
+	valgrindCmd := exec.Command("valgrind", "--tool=massif", "--time-unit=B", "--stacks=yes", binaryFile)
+
+	// Set up input and output pipes for valgrind
+	stdin, err := valgrindCmd.StdinPipe()
+	if err != nil {
+		return "", fmt.Errorf("failed to create stdin pipe: %w", err), 0, nil
+	}
+	go func() {
+		defer stdin.Close()
+		io.WriteString(stdin, input)
+	}()
+
+	stdout, err := valgrindCmd.StdoutPipe()
+	if err != nil {
+		return "", fmt.Errorf("failed to create stdout pipe: %w", err), 0, nil
+	}
+
+	// Start time tracking
+	start := time.Now()
+
+	// Start the valgrind process
+	if err := valgrindCmd.Start(); err != nil {
+		return "", fmt.Errorf("failed to start valgrind with massif: %w", err), 0, nil
+	}
+
+	// Get the process ID of the valgrind command to locate the massif output file
+	valgrindPID := valgrindCmd.Process.Pid
+	massifOutputFile := fmt.Sprintf("massif.out.%d", valgrindPID)
+
+	// Read the output of the program
+	scanner := bufio.NewScanner(stdout)
+	var result int
+	if scanner.Scan() {
+		result, err = strconv.Atoi(scanner.Text())
+		if err != nil {
+			return "", fmt.Errorf("failed to parse output as integer: %w", err), 0, nil
+		}
+	}
+
+	// Wait for valgrind to finish
+	if err := valgrindCmd.Wait(); err != nil {
+		return "", fmt.Errorf("valgrind execution failed: %w", err), 0, nil
+	}
+
+	// Calculate duration
+	duration := time.Since(start)
+
+	// Parse the result to string format
+	resultStr := strconv.Itoa(result)
+
+	memUsage, err := mem.ExtractPeakMemoryUsage(massifOutputFile)
+	if err != nil {
+		fmt.Println("Error extracting memory usage: ", err)
+	}
+
+	// Output massif filename for further memory analysis
+	return resultStr, nil, duration, memUsage
 }
 
 func runBinaryWithInput(binaryFile, input string) (string, error, time.Duration) {
@@ -194,14 +277,6 @@ func runBinaryWithInput(binaryFile, input string) (string, error, time.Duration)
 			return string(0), fmt.Errorf("failed to parse output as integer: %w", err), 0
 		}
 	}
-
-	// compileCmd := exec.Command("ps", "-o", "rss=", "-p", strconv.Itoa(testCmd.Process.Pid))
-	compileCmd := exec.Command("ps", "-o", "rss=", "-p", "1")
-	output, err := compileCmd.Output()
-	outputStr := strings.TrimSpace(string(output))
-	memoryUsageKB, err := strconv.Atoi(outputStr)
-	// compileErr := compileCmd.Run()
-	println("Memory used: ", memoryUsageKB)
 
 	if err := testCmd.Wait(); err != nil {
 		return "", fmt.Errorf("binary execution failed: %w", err), 0

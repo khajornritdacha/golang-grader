@@ -1,4 +1,4 @@
-package main
+package mem
 
 import (
 	"bufio"
@@ -16,7 +16,7 @@ type PeakMemoryUsage struct {
 	MemStacksB    int
 }
 
-func parseMemPeakUsage(log string, peakUsage *PeakMemoryUsage) error {
+func ParseMemPeakUsage(log string, peakUsage *PeakMemoryUsage) error {
 	if strings.HasPrefix(log, "time=") {
 		peakUsage.Time, _ = strconv.Atoi(strings.Split(log, "=")[1])
 	} else if strings.HasPrefix(log, "mem_heap_B=") {
@@ -29,7 +29,7 @@ func parseMemPeakUsage(log string, peakUsage *PeakMemoryUsage) error {
 	return nil
 }
 
-func extractPeakMemoryUsage(filePath string) (*PeakMemoryUsage, error) {
+func ExtractPeakMemoryUsage(filePath string) (*PeakMemoryUsage, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open file: %w", err)
@@ -54,14 +54,10 @@ func extractPeakMemoryUsage(filePath string) (*PeakMemoryUsage, error) {
 
 		// Check if we are in the peak snapshot
 		if strings.Contains(line, "heap_tree=peak") {
-			fmt.Println("Found peak snapshot")
-			fmt.Println(logs[len(logs)-1])
-			fmt.Println(logs[len(logs)-2])
-			fmt.Println(logs[len(logs)-3])
-			fmt.Println(logs[len(logs)-4])
-
+			// fmt.Println("Found peak snapshot")
 			for i := 1; len(logs) >= i && i <= 5; i++ {
-				parseMemPeakUsage(logs[len(logs)-i], &peakUsage)
+				// fmt.Println(logs[len(logs)-i])
+				ParseMemPeakUsage(logs[len(logs)-i], &peakUsage)
 			}
 
 			break
@@ -77,7 +73,7 @@ func extractPeakMemoryUsage(filePath string) (*PeakMemoryUsage, error) {
 
 func main() {
 	filePath := "massif.out.296304" // Replace with your actual file path
-	peakUsage, err := extractPeakMemoryUsage(filePath)
+	peakUsage, err := ExtractPeakMemoryUsage(filePath)
 	if err != nil {
 		fmt.Println("Error:", err)
 		return
