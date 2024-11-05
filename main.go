@@ -136,7 +136,7 @@ func handleMultipleCodes(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		_, err2, duration2, memUsage := runBinaryForMemory(binaryFileName, testCase)
+		_, err2, duration2, memUsage := runBinaryForMemory(binaryFileName, testCase, tempDir)
 
 		if err2 != nil {
 			results = append(results, TestResult{
@@ -177,9 +177,12 @@ func addProcessToCgroup(cgroupPath string, pid int) error {
 	return res
 }
 
-func runBinaryForMemory(binaryFile, input string) (string, error, time.Duration, *mem.PeakMemoryUsage) {
+func runBinaryForMemory(binaryFile, input string, tempDir string) (string, error, time.Duration, *mem.PeakMemoryUsage) {
+	massifOutputFile := filepath.Join(tempDir, "massif.out")
+	massifOutFileConfig := "--massif-out-file=" + massifOutputFile
+
 	// Prepare the valgrind command with massif
-	valgrindCmd := exec.Command("valgrind", "--tool=massif", "--time-unit=B", "--stacks=yes", binaryFile)
+	valgrindCmd := exec.Command("valgrind", "--tool=massif", "--time-unit=B", massifOutFileConfig, "--stacks=yes", binaryFile)
 
 	// Set up input and output pipes for valgrind
 	stdin, err := valgrindCmd.StdinPipe()
@@ -205,8 +208,8 @@ func runBinaryForMemory(binaryFile, input string) (string, error, time.Duration,
 	}
 
 	// Get the process ID of the valgrind command to locate the massif output file
-	valgrindPID := valgrindCmd.Process.Pid
-	massifOutputFile := fmt.Sprintf("massif.out.%d", valgrindPID)
+	// valgrindPID := valgrindCmd.Process.Pid
+	// massifOutputFile := fmt.Sprintf("massif.out.%d", valgrindPID)
 
 	// Read the output of the program
 	scanner := bufio.NewScanner(stdout)
