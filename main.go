@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -28,7 +29,8 @@ type TestResult struct {
 	Time   string `json:"time"`
 }
 
-var semaphore = make(chan struct{}, 100) // Limit to 3 concurrent requests
+var semaphore = make(chan struct{}, 10) // Limit to 3 concurrent requests
+var ch = make(chan string)
 
 var cpuQuota = -1
 var cpuPeriod = 100000
@@ -123,8 +125,6 @@ func handleMultipleCodes(w http.ResponseWriter, r *http.Request) {
 	for _, testCase := range requestBody.TestCases {
 		result, err, duration := runBinaryWithInput(binaryFileName, testCase)
 
-		// stringDuration := strconv.Itoa(int(duration.Milliseconds()))
-
 		fmt.Println(duration)
 
 		if err != nil {
@@ -194,6 +194,14 @@ func runBinaryWithInput(binaryFile, input string) (string, error, time.Duration)
 			return string(0), fmt.Errorf("failed to parse output as integer: %w", err), 0
 		}
 	}
+
+	// compileCmd := exec.Command("ps", "-o", "rss=", "-p", strconv.Itoa(testCmd.Process.Pid))
+	compileCmd := exec.Command("ps", "-o", "rss=", "-p", "1")
+	output, err := compileCmd.Output()
+	outputStr := strings.TrimSpace(string(output))
+	memoryUsageKB, err := strconv.Atoi(outputStr)
+	// compileErr := compileCmd.Run()
+	println("Memory used: ", memoryUsageKB)
 
 	if err := testCmd.Wait(); err != nil {
 		return "", fmt.Errorf("binary execution failed: %w", err), 0
