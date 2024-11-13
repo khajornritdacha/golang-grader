@@ -8,8 +8,8 @@
       "args": [],
       "stopAtEntry": false,
       "externalConsole": false,
-      "cwd": "/home/khajornritdacha/sandbox/goApi01",
-      "program": "/home/khajornritdacha/sandbox/goApi01/build/Debug/outDebug",
+      "cwd": "/home/khajornritdacha/sandbox/study/indiv-nattee",
+      "program": "/home/khajornritdacha/sandbox/study/indiv-nattee/build/Debug/outDebug",
       "MIMode": "gdb",
       "miDebuggerPath": "gdb",
       "setupCommands": [
