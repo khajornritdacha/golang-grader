@@ -29,7 +29,6 @@ services:
     depends_on:
       - kafka
       - web
-    scale: 3
 
   consumer:
     build: ./apps/consumer
